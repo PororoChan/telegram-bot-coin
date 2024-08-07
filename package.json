@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@terra-money/terra.js": "^3.1.10",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "fs-extra": "^11.2.0",
+    "nodemon": "^3.1.4",
+    "path": "^0.12.7",
+    "telegraf": "^4.16.3"
+  }
+}

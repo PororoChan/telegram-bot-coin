@@ -1,0 +1,29 @@
+{
+  "1261144989": {
+    "chat_id": 1261144989,
+    "paired_address": [
+      {
+        "address": "terra1mkl973d34jsuv0whsfl43yw3sktm8kv7lgn35fhe6l88d0vvaukq5nq929",
+        "id": "cvyvkunzp"
+      }
+    ]
+  },
+  "5587486122": {
+    "chat_id": 5587486122,
+    "paired_address": [
+      {
+        "address": "terra1mkl973d34jsuv0whsfl43yw3sktm8kv7lgn35fhe6l88d0vvaukq5nq929",
+        "id": "g3lxk6q7h"
+      }
+    ]
+  },
+  "-1002203211847": {
+    "chat_id": -1002203211847,
+    "paired_address": [
+      {
+        "address": "terra1mkl973d34jsuv0whsfl43yw3sktm8kv7lgn35fhe6l88d0vvaukq5nq929",
+        "id": "5mlxeny4d"
+      }
+    ]
+  }
+}
