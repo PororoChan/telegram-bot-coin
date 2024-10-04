@@ -1,0 +1,8 @@
+version: '3.5'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: telegram-token-bot
+    container_name: telegram-token-bot
