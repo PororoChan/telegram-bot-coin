@@ -58,6 +58,8 @@ const fetchPairDetails = async (addresses) => {
   const pairData = [];
 
   for (const address of addresses) {
+    const { data } = await query(address, "eyJwYWlyIjoge319");
+    console.log(data)
     const { data: { asset_infos } } = await query(address, "eyJwYWlyIjoge319");
     const firstSymbol = await getSymbol(asset_infos[0])
     const secondSymbol = await getSymbol(asset_infos[1])
@@ -89,12 +91,21 @@ const fetchTokenDetails = async (tokens) => {
 }
 
 const fetchPairs = async () => {
-  const { data: { pairs } } = await query("terra1rg6595vgxw2zcl8zzfkpt7nyg5nmksv8qg2pc79fkamnwmnyz25s8zgdhz", "eyJyZWdpc3RlcmVkX3BhaXIiOiB7fX0=")
+  const { data: { pairs } } = await query("terra1kykj224y43e6pl89a4eug2pv62tqeq20n2mc80ngr0nefz6hkpaqawnudk", "eyJyZWdpc3RlcmVkX3BhaXIiOiB7fX0=")
   return await fetchPairDetails(pairs)
 }
 
+const subscribedPairs = async (chatId) => {
+  try {
+    const { data: { tokens } } = await query("terra1kykj224y43e6pl89a4eug2pv62tqeq20n2mc80ngr0nefz6hkpaqawnudk", Buffer.from(`{"subscribed": {"chat_id": "${chatId}"}}`).toString("base64"))
+    return [...tokens]
+  } catch {
+    return []
+  }
+}
+
 const fetchTokens = async () => {
-  const { data: { tokens } } = await query("terra1rg6595vgxw2zcl8zzfkpt7nyg5nmksv8qg2pc79fkamnwmnyz25s8zgdhz", "eyJyZWdpc3RlcmVkX3Rva2VuIjoge319")
+  const { data: { tokens } } = await query("terra1kykj224y43e6pl89a4eug2pv62tqeq20n2mc80ngr0nefz6hkpaqawnudk", "eyJyZWdpc3RlcmVkX3Rva2VuIjoge319")
   return await fetchTokenDetails(tokens)
 }
 
@@ -104,18 +115,13 @@ const logicSubscribe = async (ctx) => {
 
   try {
     const pairs = await fetchPairs();
-    const recordFile = "./record.json";
-    const records = await fs.readJson(recordFile);
-
-    const registeredAddresses = (records[chatId]?.paired_address || []).map(
-      (pair) => pair.address
-    );
+    const subsribed = await subscribedPairs(chatId)
 
     const unregisteredPairs = pairs
-      .filter((pair) => !registeredAddresses.includes(pair.address))
+      .filter((pair) => !subsribed.includes(pair.address))
       .map(({ address, id, firstSymbol, secondSymbol }) => ({
         text: `${firstSymbol} - ${secondSymbol}`,
-        callback_data: `subs_${id}`,
+        web_app: { url: getWebPath(`/subscribes/${address}?action=subscribe&chatId=${chatId}`) }
       }))
       .map((button) => [button]);
 
@@ -143,36 +149,30 @@ const logicUnsubscribe = async (ctx) => {
 
   const loadingMsg = await ctx.reply("Please wait...")
   try {
-    const recordFile = "./record.json";
-    const records = await fs.readJson(recordFile);
+    const subsribed = await subscribedPairs(chatId)
+    const pairs = await fetchPairDetails(subsribed.map(e => e.address))
 
-    if (records[chatId]) {
-      const pairedAddresses = records[chatId].paired_address;
-      const pairs = await fetchPairDetails(pairedAddresses.map(e => e.address))
+    if (subsribed.length > 0) {
+      const inlineButtons = pairs
+        .map((pair) => ({
+          text: `${pair.firstSymbol} - ${pair.secondSymbol}`,
+          web_app: { url: getWebPath(`/subscribes/${pair.address}?action=unsubscribe&chatId=${chatId}`) }
+        }))
+        .map((button) => [button]);
 
-      if (pairedAddresses.length > 0) {
-        const inlineButtons = pairs
-          .map((pair) => ({
-            text: `${pair.firstSymbol} - ${pair.secondSymbol}`,
-            callback_data: `unsub_${pair.id}`,
-          }))
-          .map((button) => [button]);
-
-        const message =
-          "You are subscribed to the following pairs. Click on an address to unsubscribe:";
-        await ctx.editMessageText(message, {
-          message_id: loadingMsg.message_id,
-          reply_markup: {
-            inline_keyboard: inlineButtons,
-          },
-        });
-      } else {
-        await ctx.editMessageText("You are not subscribed to any pairs.", { message_id: loadingMsg.message_id });
-      }
+      const message =
+        "You are subscribed to the following pairs. Click on an address to unsubscribe:";
+      await ctx.editMessageText(message, {
+        message_id: loadingMsg.message_id,
+        reply_markup: {
+          inline_keyboard: inlineButtons,
+        },
+      });
     } else {
       await ctx.editMessageText("You are not subscribed to any pairs.", { message_id: loadingMsg.message_id });
     }
   } catch (error) {
+    console.log(error)
     await ctx.editMessageText("An error occurred while processing your request.", { message_id: loadingMsg.message_id });
   }
 };
@@ -207,9 +207,9 @@ bot.command("subscribe", async (ctx) => {
   logicSubscribe(ctx);
 });
 
-bot.command("unsubscribe", async (ctx) => {
-  logicUnsubscribe(ctx);
-});
+// bot.command("unsubscribe", async (ctx) => {
+//   logicUnsubscribe(ctx);
+// });
 
 bot.command("register_pair", (ctx) => {
   bot.telegram.sendMessage(
@@ -424,79 +424,81 @@ bot.action(/^subs_.{9}$/, async (ctx) => {
 });
 
 ws.subscribeTx({ "wasm.action": "swap" }, async (data) => {
-  const pairs = await fetchPairs();
-  const { events } = data.value.TxResult.result;
-  const wasmEvent = events.find(
-    (e) =>
-      e.type == "wasm" &&
-      e.attributes.some((f) => f.key == "action" && f.value == "swap")
-  );
+  try {
+    const pairs = await fetchPairs();
+    const { events } = data.value.TxResult.result;
+    const wasmEvent = events.find(
+      (e) =>
+        e.type == "wasm" &&
+        e.attributes.some((f) => f.key == "action" && f.value == "swap")
+    );
 
-  if (!wasmEvent) return;
+    if (!wasmEvent) return;
 
-  const { attributes } = wasmEvent;
-  const { value: contractAddress } = attributes.find(
-    (e) => e.key == "_contract_address"
-  );
+    const { attributes } = wasmEvent;
+    const { value: contractAddress } = attributes.find(
+      (e) => e.key == "_contract_address"
+    );
 
-  let pair = pairs.find((e) => e.address == contractAddress);
-  if (pair) {
-    const assetLink = `https://terra-classic-lcd.publicnode.com/cosmwasm/wasm/v1/contract/${contractAddress}/smart/eyJwYWlyIjp7fX0=`;
-    const datas = await fetch(assetLink);
-    const fetchData = await datas.json();
-    const assetInfo = fetchData.data.asset_infos[0];
-    const contract_addr = assetInfo.token.contract_addr;
+    let pair = pairs.find((e) => e.address == contractAddress);
+    if (pair) {
+      const assetLink = `https://terra-classic-lcd.publicnode.com/cosmwasm/wasm/v1/contract/${contractAddress}/smart/eyJwYWlyIjp7fX0=`;
+      const datas = await fetch(assetLink);
+      const fetchData = await datas.json();
+      const assetInfo = fetchData.data.asset_infos[0];
+      const contract_addr = assetInfo.token.contract_addr;
 
-    const offerAsset = attributes.find((e) => e.key == "offer_asset");
-    const askAsset = attributes.find((e) => e.key == "ask_asset");
-    const offerAmount = attributes.find((e) => e.key == "offer_amount");
-    const askAmount = attributes.find((e) => e.key == "return_amount");
-    const offerSymbol = pair.firstIdentifier == offerAsset.value ? pair.firstSymbol : pair.secondSymbol;
-    const askSymbol = pair.firstIdentifier == askAsset.value ? pair.firstSymbol : pair.secondSymbol;
+      const offerAsset = attributes.find((e) => e.key == "offer_asset");
+      const askAsset = attributes.find((e) => e.key == "ask_asset");
+      const offerAmount = attributes.find((e) => e.key == "offer_amount");
+      const askAmount = attributes.find((e) => e.key == "return_amount");
+      const offerSymbol = pair.firstIdentifier == offerAsset.value ? pair.firstSymbol : pair.secondSymbol;
+      const askSymbol = pair.firstIdentifier == askAsset.value ? pair.firstSymbol : pair.secondSymbol;
 
-    let message = "";
-    // if (offerAsset && askAsset) {
-    //   if (askAsset.value == contract_addr) {
-    //     message =
-    //       `Transaction Buy: \n` +
-    //       `Selling: ${offerAsset.value} \n` +
-    //       `For: ${askAsset.value}`;
-    //   } else {
-    //     message =
-    //       `Transaction Sell: \n` +
-    //       `Selling: ${offerAsset.value} \n` +
-    //       `For: ${askAsset.value}`;
-    //   }
-    // }
+      let message = "";
+      // if (offerAsset && askAsset) {
+      //   if (askAsset.value == contract_addr) {
+      //     message =
+      //       `Transaction Buy: \n` +
+      //       `Selling: ${offerAsset.value} \n` +
+      //       `For: ${askAsset.value}`;
+      //   } else {
+      //     message =
+      //       `Transaction Sell: \n` +
+      //       `Selling: ${offerAsset.value} \n` +
+      //       `For: ${askAsset.value}`;
+      //   }
+      // }
 
-    if (offerAmount && askAmount) {
-      message += `\n\nSomeone is swap: \n ${offerAmount.value / 1000000
-        } ${offerSymbol} for ${askAmount.value / 1000000} ${askSymbol}`;
-    }
+      if (offerAmount && askAmount) {
+        message += `\n\nSomeone is swap: \n ${offerAmount.value / 1000000
+          } ${offerSymbol} for ${askAmount.value / 1000000} ${askSymbol}`;
+      }
 
-    const recordFile = "./record.json";
-    const records = await fs.readJson(recordFile);
+      const recordFile = "./record.json";
+      const records = await fs.readJson(recordFile);
 
-    for (const [chatId, data] of Object.entries(records)) {
-      const { paired_address } = data;
+      for (const [chatId, data] of Object.entries(records)) {
+        const { paired_address } = data;
 
-      const isAddressRegistered = paired_address.some(
-        (addressData) => addressData.address === contractAddress
-      );
+        const isAddressRegistered = paired_address.some(
+          (addressData) => addressData.address === contractAddress
+        );
 
-      if (isAddressRegistered) {
-        try {
-          await bot.telegram.sendMessage(
-            chatId,
-            message ||
-            "A swap transaction has occurred on a registered contract address."
-          );
-        } catch (error) {
-          console.error(`Failed to send message to chat_id ${chatId}:`, error);
+        if (isAddressRegistered) {
+          try {
+            await bot.telegram.sendMessage(
+              chatId,
+              message ||
+              "A swap transaction has occurred on a registered contract address."
+            );
+          } catch (error) {
+            console.error(`Failed to send message to chat_id ${chatId}:`, error);
+          }
         }
       }
     }
-  }
+  } catch { }
 });
 
 ws.start();
